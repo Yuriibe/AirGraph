@@ -3,9 +3,14 @@ import time
 import threading
 import signal
 import sys
+import json
+import os
+
 from scapy.all import sniff
 from scapy.layers.dot11 import Dot11
 from scapy.config import conf
+
+from helper.interface_manager import InterfaceManager
 
 conf.debug_dissector = 2
 # Interface
@@ -15,40 +20,19 @@ iface = "wlan0"
 seen_aps = {}
 seen_clients = {}
 client_associations = {}
+vendor_map = None
 
-# --- Helpers ---
-def run_cmd(cmd):
-    """Run a shell command and suppress output."""
-    os.system(cmd + " >/dev/null 2>&1")
+# https://maclookup.app/downloads/json-database
+VENDOR_DB_PATH = "mac-vendors-export.json"
 
-def set_monitor_mode():
-    """Put interface into monitor mode."""
-    run_cmd(f"ip link set {iface} down")
-    run_cmd(f"iw dev {iface} set type monitor")
-    run_cmd(f"ip link set {iface} up")
 
-def restore_managed_mode():
-    """Restore interface to managed mode (normal Wi-Fi)."""
-    run_cmd(f"ip link set {iface} down")
-    run_cmd(f"iw dev {iface} set type managed")
-    run_cmd(f"ip link set {iface} up")
-
-def set_channel(ch):
-    """Set Wi-Fi channel."""
-    try:
-        run_cmd(f"iw dev {iface} set channel {ch}")
-       # print(f"🔄 Switched to channel {ch}")
-        time.sleep(0.5)  # Kurze Pause nach Channel-Wechsel
-    except Exception as e:
-        print(f"Error setting channel {ch}: {e}")
-
-def channel_hopper():
+def channel_hopper(manager):
     """Background thread: hop through channels."""
     channels = [1, 6, 11]
     while True:
         for ch in channels:
             try:
-                set_channel(ch)
+                manager.set_channel(ch)
                 time.sleep(5.0)  # Länger warten - war 2.0
             except Exception as e:
                 print(f"Channel hop error: {e}")
@@ -129,21 +113,41 @@ def packet_handler(pkt):
     # Data frames
     elif pkt.type == 2:
         handle_data_frame(pkt)
-def start_sniffing():
-    """Sniffing with automatic restart on socket errors"""
-    while True:
-        try:
-            print("🔍 Starting packet capture...")
-            sniff(iface=iface, prn=packet_handler, store=0, timeout=30)
-        except Exception as e:
-            print(f"⚠️  Socket error: {e}")
-            print("🔄 Restarting in 3 seconds...")
-            time.sleep(3)
-            # Reinitialize interface
-            restore_managed_mode()
-            time.sleep(1)
-            set_monitor_mode()
-            time.sleep(2)
+
+
+def start_sniffing(manager):
+    """Single sniff session with error handling"""
+    try:
+        print("🔍 Starting packet capture...")
+        sniff(iface=manager.iface, prn=packet_handler, store=0)
+    except KeyboardInterrupt:
+        print("\n🛑 Capture interrupted by user")
+    except OSError as e:
+        print(f"⚠️ Socket error: {e}")
+        print("🔄 Restarting in 3 seconds...")
+        time.sleep(3)
+        start_sniffing(manager)  # nur bei echten Socket-Fehlern erneut starten
+
+
+def load_vendor_map(path):
+    if not os.path.exists(path):
+        print(f"Vendor DB file not found: {path}")
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    vm = {}
+    for entry in data:
+        prefix = entry.get("macPrefix", "").replace(":", "").upper()
+        vendor = entry.get("vendorName", "").strip()
+        if prefix and vendor:
+            vm[prefix] = vendor
+    return vm
+
+
+def find_vendor_by_mac(mac):
+    prefix = mac.upper().replace(":", "")[:6]
+    return vendor_map.get(prefix, "Unknown Vendor")
 
 
 def print_seen():
@@ -156,7 +160,7 @@ def print_seen():
         # Count connected clients
         connected_count = sum(1 for client_info in seen_clients.values()
                               if client_info['connected_to'] == bssid)
-        print(f"SSID: {ssid:<20} | BSSID: {bssid} | Clients: {connected_count}")
+        print(f"SSID: {ssid:<20} | BSSID: {bssid} | Clients: {connected_count} | Vendor: {find_vendor_by_mac(bssid)}")
 
     print("\n" + "=" * 70)
     print("👥 DISCOVERED CLIENTS")
@@ -170,11 +174,12 @@ def print_seen():
         else:
             status = "Status unknown"
 
-        print(f"Client: {client_mac} | {status}")
+        print(f"Client: {client_mac} | {status} | Vendor: {find_vendor_by_mac(client_mac)}")
 
     print(f"\n📊 Total APs: {len(seen_aps)}")
     print(f"📊 Total Clients: {len(seen_clients)}")
     print("=" * 70)
+
 
 def periodic_summary():
     """Print summary every 30 seconds"""
@@ -182,25 +187,23 @@ def periodic_summary():
         time.sleep(5)
         print_seen()
 
-# In main, replace the lambda thread with:
-threading.Thread(target=periodic_summary, daemon=True).start()
-# --- Graceful shutdown ---
-def handle_exit(sig, frame):
-    print("\n⚠️  Restoring interface and exiting...")
-    restore_managed_mode()
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, handle_exit)
 
 # --- Main ---
 if __name__ == "__main__":
-    print("🔧 Setting interface to monitor mode...")
-    set_monitor_mode()
+    vendor_map = load_vendor_map(VENDOR_DB_PATH)
 
-    print("🚀 Starting channel hopper...")
-    threading.Thread(target=channel_hopper, daemon=True).start()
+    with InterfaceManager("wlan0") as iface_manager:
+        print("🚀 Starting channel hopper...")
+        threading.Thread(
+            target=channel_hopper,
+            args=(iface_manager,),
+            daemon=True,
+        ).start()
 
-    threading.Thread(target=periodic_summary, daemon=True).start()
+        threading.Thread(
+            target=periodic_summary,
+            daemon=True,
+        ).start()
 
-    print("🔍 Sniffing across channels (Ctrl+C to stop)...\n")
-    start_sniffing()
+        print("🔍 Sniffing across channels (Ctrl+C to stop)...\n")
+        start_sniffing(iface_manager)
