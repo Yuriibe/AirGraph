@@ -4,12 +4,12 @@ import json
 import os
 
 from scapy.all import sniff
-from scapy.layers.dot11 import Dot11
 from scapy.config import conf
 
 from helper.interface_manager import InterfaceManager
 from config.settings import Config
 from display.formatter import NetworkFormatter, DataStore
+from handler.packet_handler import PacketHandlers
 
 conf.debug_dissector = 2
 
@@ -27,100 +27,24 @@ def channel_hopper(manager):
         for ch in channels:
             try:
                 manager.set_channel(ch)
-                time.sleep(Config.CHANNEL_DWELL_TIME)  # Länger warten - war 2.0
+                time.sleep(Config.CHANNEL_DWELL_TIME)
             except Exception as e:
                 print(f"Channel hop error: {e}")
                 time.sleep(1.0)
 
 
-def handle_beacon_frame(pkt):
-    """Handle Access Point beacon frames"""
-    ssid = pkt.info.decode(errors="ignore")
-    bssid = pkt.addr2
-
-    if bssid not in seen_aps:
-        seen_aps[bssid] = ssid or '<hidden>'
-        # print(f"[AP] SSID: {ssid or '<hidden>'} | BSSID: {bssid}")
-
-
-def handle_probe_request(pkt):
-    """Handle client probe requests"""
-    client = pkt.addr2
-    ssid = pkt.info.decode(errors="ignore")
-
-    if client not in seen_clients:
-        seen_clients[client] = {
-            'connected_to': None,
-            'ssid': None,
-            'probes': []
-        }
-
-    # Track what SSIDs this client is probing for
-    if ssid and ssid not in seen_clients[client]['probes']:
-        seen_clients[client]['probes'].append(ssid)
-
-
-def handle_association_request(pkt):
-    """Handle client association requests"""
-    client = pkt.addr2
-    ap_bssid = pkt.addr1
-
-    if client not in seen_clients:
-        seen_clients[client] = {'connected_to': None, 'ssid': None, 'probes': []}
-
-    seen_clients[client]['connected_to'] = ap_bssid
-    seen_clients[client]['ssid'] = seen_aps.get(ap_bssid, 'Unknown')
-    print(f"[ASSOC] Client {client} associating with {ap_bssid}")
-
-
-def handle_data_frame(pkt):
-    """Handle data frames to track active connections"""
-    src = pkt.addr2
-    dst = pkt.addr1
-    bssid = pkt.addr3
-
-    # Client to AP traffic
-    if src in seen_clients and dst in seen_aps:
-        seen_clients[src]['connected_to'] = dst
-        seen_clients[src]['ssid'] = seen_aps.get(dst, 'Unknown')
-
-    # AP to Client traffic
-    elif src in seen_aps and dst in seen_clients:
-        seen_clients[dst]['connected_to'] = src
-        seen_clients[dst]['ssid'] = seen_aps.get(src, 'Unknown')
-
-
-def packet_handler(pkt):
-    """Main packet processing dispatcher"""
-    if not pkt.haslayer(Dot11):
-        return
-
-    # Management frames
-    if pkt.type == 0:
-        if pkt.subtype == 8:  # Beacon frames
-            handle_beacon_frame(pkt)
-        elif pkt.subtype == 4:  # Probe requests
-            handle_probe_request(pkt)
-        elif pkt.subtype == 0:  # Association requests
-            handle_association_request(pkt)
-
-    # Data frames
-    elif pkt.type == 2:
-        handle_data_frame(pkt)
-
-
-def start_sniffing(manager):
+def start_sniffing(manager, packet_handlers):
     """Single sniff session with error handling"""
     try:
         print("🔍 Starting packet capture...")
-        sniff(iface=manager.iface, prn=packet_handler, store=0)
+        sniff(iface=manager.iface, prn=packet_handlers.packet_handler, store=0)
     except KeyboardInterrupt:
         print("\n🛑 Capture interrupted by user")
     except OSError as e:
         print(f"⚠️ Socket error: {e}")
         print("🔄 Restarting in 3 seconds...")
         time.sleep(3)
-        start_sniffing(manager)  # nur bei echten Socket-Fehlern erneut starten
+        start_sniffing(manager, packet_handlers)
 
 
 def load_vendor_map(path):
@@ -155,6 +79,9 @@ def periodic_summary(formatter):
 if __name__ == "__main__":
     vendor_map = load_vendor_map(Config.VENDOR_DB_PATH)
 
+    # Create packet handlers instance
+    packet_handlers = PacketHandlers(seen_aps, seen_clients)
+
     with InterfaceManager(Config.INTERFACE) as iface_manager:
         print("🚀 Starting channel hopper...")
         threading.Thread(
@@ -173,4 +100,4 @@ if __name__ == "__main__":
         ).start()
 
         print("🔍 Sniffing across channels (Ctrl+C to stop)...\n")
-        start_sniffing(iface_manager)
+        start_sniffing(iface_manager, packet_handlers)
