@@ -1,84 +1,35 @@
-import time
 import threading
-import json
-import os
 
-from scapy.all import sniff
 from scapy.config import conf
 
+from config.settings import Config
+from core.network_scanner import NetworkScanner
+from core.packet_handler import PacketHandlers
+from display.formatter import NetworkFormatter, DataStore
 from helper.interface_manager import InterfaceManager
 from helper.vendor_manager import VendorManager
-from config.settings import Config
-from display.formatter import NetworkFormatter, DataStore
-from handler.packet_handler import PacketHandlers
 
 conf.debug_dissector = 2
 
 # Track discovered APs and clients
 seen_aps = {}
 seen_clients = {}
-client_associations = {}
-vendor_map = None
-
-
-def channel_hopper(manager):
-    """Background thread: hop through channels."""
-    channels = Config.CHANNELS
-    while True:
-        for ch in channels:
-            try:
-                manager.set_channel(ch)
-                time.sleep(Config.CHANNEL_DWELL_TIME)
-            except Exception as e:
-                print(f"Channel hop error: {e}")
-                time.sleep(1.0)
-
-
-def start_sniffing(manager, packet_handlers):
-    """Single sniff session with error handling"""
-    try:
-        print("🔍 Starting packet capture...")
-        sniff(iface=manager.iface, prn=packet_handlers.packet_handler, store=0)
-    except KeyboardInterrupt:
-        print("\n🛑 Capture interrupted by user")
-    except OSError as e:
-        print(f"⚠️ Socket error: {e}")
-        print("🔄 Restarting in 3 seconds...")
-        time.sleep(3)
-        start_sniffing(manager, packet_handlers)
-
-
-def periodic_summary(formatter):
-    """Print summary every interval"""
-    while True:
-        time.sleep(Config.SUMMARY_INTERVAL)
-        formatter.print_full_summary()
-
 
 # --- Main ---
 if __name__ == "__main__":
-    # Create VendorManager instance
     vendor_manager = VendorManager(Config.VENDOR_DB_PATH)
-
-    # Create packet handlers instance
     packet_handlers = PacketHandlers(seen_aps, seen_clients)
 
     with InterfaceManager(Config.INTERFACE) as iface_manager:
-        print("🚀 Starting channel hopper...")
-        threading.Thread(
-            target=channel_hopper,
-            args=(iface_manager,),
-            daemon=True,
-        ).start()
+        scanner = NetworkScanner(iface_manager, Config)
+        formatter = NetworkFormatter(
+            DataStore(seen_aps, seen_clients),
+            vendor_manager.find_vendor_by_mac
+        )
 
-        threading.Thread(
-            target=periodic_summary,
-            args=(NetworkFormatter(
-                DataStore(seen_aps, seen_clients),
-                vendor_manager.find_vendor_by_mac,
-            ),),
-            daemon=True,
-        ).start()
+        print("🚀 Starting channel hopper...")
+        threading.Thread(target=scanner.channel_hopper, daemon=True).start()
+        threading.Thread(target=formatter.periodic_summary, daemon=True).start()
 
         print("🔍 Sniffing across channels (Ctrl+C to stop)...\n")
-        start_sniffing(iface_manager, packet_handlers)
+        scanner.start_sniffing(packet_handlers)

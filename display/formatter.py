@@ -1,7 +1,12 @@
+import time
+from config.settings import Config
+
+
 class DataStore:
     def __init__(self, seen_aps, seen_clients):
         self.seen_aps = seen_aps
         self.seen_clients = seen_clients
+
 
 class NetworkFormatter:
     def __init__(self, data_store, vendor_lookup_func):
@@ -46,3 +51,9 @@ class NetworkFormatter:
         print(f"\n📊 Total APs: {len(self.data_store.seen_aps)}")
         print(f"📊 Total Clients: {len(self.data_store.seen_clients)}")
         print("=" * 70)
+
+    def periodic_summary(self):
+        """Print summary every interval"""
+        while True:
+            time.sleep(Config.SUMMARY_INTERVAL)
+            self.print_full_summary()
