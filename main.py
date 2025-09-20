@@ -1,8 +1,5 @@
-import os
 import time
 import threading
-import signal
-import sys
 import json
 import os
 
@@ -11,10 +8,9 @@ from scapy.layers.dot11 import Dot11
 from scapy.config import conf
 
 from helper.interface_manager import InterfaceManager
+from config.settings import Config
 
 conf.debug_dissector = 2
-# Interface
-iface = "wlan0"
 
 # Track discovered APs and clients
 seen_aps = {}
@@ -22,18 +18,15 @@ seen_clients = {}
 client_associations = {}
 vendor_map = None
 
-# https://maclookup.app/downloads/json-database
-VENDOR_DB_PATH = "mac-vendors-export.json"
-
 
 def channel_hopper(manager):
     """Background thread: hop through channels."""
-    channels = [1, 6, 11]
+    channels = Config.CHANNELS
     while True:
         for ch in channels:
             try:
                 manager.set_channel(ch)
-                time.sleep(5.0)  # Länger warten - war 2.0
+                time.sleep(Config.CHANNEL_DWELL_TIME)  # Länger warten - war 2.0
             except Exception as e:
                 print(f"Channel hop error: {e}")
                 time.sleep(1.0)
@@ -184,15 +177,15 @@ def print_seen():
 def periodic_summary():
     """Print summary every 30 seconds"""
     while True:
-        time.sleep(5)
+        time.sleep(Config.SUMMARY_INTERVAL)
         print_seen()
 
 
 # --- Main ---
 if __name__ == "__main__":
-    vendor_map = load_vendor_map(VENDOR_DB_PATH)
+    vendor_map = load_vendor_map(Config.VENDOR_DB_PATH)
 
-    with InterfaceManager("wlan0") as iface_manager:
+    with InterfaceManager(Config.INTERFACE) as iface_manager:
         print("🚀 Starting channel hopper...")
         threading.Thread(
             target=channel_hopper,
