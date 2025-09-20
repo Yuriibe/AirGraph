@@ -7,6 +7,7 @@ from scapy.all import sniff
 from scapy.config import conf
 
 from helper.interface_manager import InterfaceManager
+from helper.vendor_manager import VendorManager
 from config.settings import Config
 from display.formatter import NetworkFormatter, DataStore
 from handler.packet_handler import PacketHandlers
@@ -47,27 +48,6 @@ def start_sniffing(manager, packet_handlers):
         start_sniffing(manager, packet_handlers)
 
 
-def load_vendor_map(path):
-    if not os.path.exists(path):
-        print(f"Vendor DB file not found: {path}")
-        return {}
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    vm = {}
-    for entry in data:
-        prefix = entry.get("macPrefix", "").replace(":", "").upper()
-        vendor = entry.get("vendorName", "").strip()
-        if prefix and vendor:
-            vm[prefix] = vendor
-    return vm
-
-
-def find_vendor_by_mac(mac):
-    prefix = mac.upper().replace(":", "")[:6]
-    return vendor_map.get(prefix, "Unknown Vendor")
-
-
 def periodic_summary(formatter):
     """Print summary every interval"""
     while True:
@@ -77,7 +57,8 @@ def periodic_summary(formatter):
 
 # --- Main ---
 if __name__ == "__main__":
-    vendor_map = load_vendor_map(Config.VENDOR_DB_PATH)
+    # Create VendorManager instance
+    vendor_manager = VendorManager(Config.VENDOR_DB_PATH)
 
     # Create packet handlers instance
     packet_handlers = PacketHandlers(seen_aps, seen_clients)
@@ -94,7 +75,7 @@ if __name__ == "__main__":
             target=periodic_summary,
             args=(NetworkFormatter(
                 DataStore(seen_aps, seen_clients),
-                find_vendor_by_mac,
+                vendor_manager.find_vendor_by_mac,
             ),),
             daemon=True,
         ).start()
