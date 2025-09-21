@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi Network Graph</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0c0c0c, #1a1a2e, #16213e);
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            min-width: 300px;
+            z-index: 100;
+            box-shadow: 0 8px 32px rgba(0, 255, 255, 0.1);
+        }
+
+        .node-info {
+            display: none;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(0, 255, 255, 0.2);
+        }
+
+        .node-info.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .status-connected { color: #00ff88; }
+        .status-probing { color: #ffaa00; }
+        .status-unknown { color: #888; }
+        .status-ap { color: #00ccff; }
+
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: rgba(0, 255, 255, 0.1);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            color: #00ccff;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 12px;
+        }
+
+        .control-btn:hover {
+            background: rgba(0, 255, 255, 0.2);
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+        }
+
+        .legend {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 15px;
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+<div id="container">
+    <div id="info-panel">
+        <h3 style="color: #00ccff; margin-bottom: 10px;">WiFi Network Scanner</h3>
+        <div>
+            <span class="status-ap">Access Points:</span> <span id="ap-count">0</span><br>
+            <span class="status-connected">Connected Clients:</span> <span id="connected-count">0</span><br>
+            <span class="status-probing">Probing Clients:</span> <span id="probing-count">0</span><br>
+            <span class="status-unknown">Unknown Clients:</span> <span id="unknown-count">0</span>
+        </div>
+        <div id="node-details" class="node-info">
+            <h4 id="node-title"></h4>
+            <div id="node-data"></div>
+        </div>
+    </div>
+
+    <div class="legend">
+        <h4 style="color: #00ccff; margin-bottom: 8px;">Legend</h4>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #00ccff; box-shadow: 0 0 10px #00ccff;"></div>
+            Access Points
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #00ff88; box-shadow: 0 0 10px #00ff88;"></div>
+            Connected
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #ffaa00; box-shadow: 0 0 10px #ffaa00;"></div>
+            Probing
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot" style="background: #888;"></div>
+            Unknown
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="control-btn" onclick="toggleAnimation()">⏸️ Pause</button>
+        <button class="control-btn" onclick="resetView()">🔄 Reset View</button>
+        <button class="control-btn" onclick="toggleConnections()">🔗 Connections</button>
+        <button class="control-btn" onclick="loadNetworkData()">🔄 Refresh Data</button>
+    </div>
+</div>
+<script>
+    // Scene setup
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);
+    document.getElementById('container').appendChild(renderer.domElement);
+
+    // Camera controls (mouse interaction)
+    let mouseX = 0, mouseY = 0;
+    let targetRotationX = 0, targetRotationY = 0;
+    let isMouseDown = false;
+
+    const wifiData = {
+        accessPoints: [
+        ],
+        clients: [
+        ]
+    };
+
+    function updateNetworks() {
+        fetch('/api/networks')
+            .then(response => response.json())
+            .then(data => {
+
+                // Daten aktualisieren
+                wifiData.accessPoints = data;
+                   wifiData.clients = data.flatMap(ap =>
+                (ap.clients || []).map(client => ({
+                    ...client,
+                    connectedTo: ap.bssid,   // Info hinzufügen, zu welchem AP er gehört
+                    ssid: ap.ssid
+                }))
+            );
+                console.log('Netzwerkdaten geladen:', wifiData);
+                // Neue 3D-Objekte erstellen
+                createNodes();
+                createConnections();
+                updateStats();
+            })
+            .catch(error => {
+                console.error('Fehler beim Laden der Netzwerkdaten:', error);
+            });
+    }
+
+    const nodes = [];
+    const connections = [];
+    const nodeMap = new Map();
+    let animationId;
+    let showConnections = true;
+    let animationPaused = false;
+
+    // Create materials
+    const apMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ccff,
+        transparent: true,
+        opacity: 0.8
+    });
+
+    const connectedMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ff88,
+        transparent: true,
+        opacity: 0.7
+    });
+
+    const probingMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffaa00,
+        transparent: true,
+        opacity: 0.7
+    });
+
+    const unknownMaterial = new THREE.MeshBasicMaterial({
+        color: 0x888888,
+        transparent: true,
+        opacity: 0.5
+    });
+
+    // Create nodes
+    function createNodes() {
+        // Create Access Points
+        wifiData.accessPoints.forEach((ap, index) => {
+            const geometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+            const mesh = new THREE.Mesh(geometry, apMaterial);
+
+            const angle = (index / wifiData.accessPoints.length) * Math.PI * 2;
+            const radius = 8;
+            mesh.position.set(
+                Math.cos(angle) * radius,
+                Math.sin(angle * 0.5) * 2,
+                Math.sin(angle) * radius
+            );
+
+            // Add glow effect
+            const glowGeometry = new THREE.SphereGeometry(1.2, 16, 16);
+            const glowMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ccff,
+                transparent: true,
+                opacity: 0.1
+            });
+            const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+            mesh.add(glow);
+
+            mesh.userData = { type: 'ap', data: ap };
+            scene.add(mesh);
+            nodes.push(mesh);
+            nodeMap.set(ap.id, mesh);
+        });
+
+        // Create Clients
+        wifiData.clients.forEach((client, index) => {
+            const geometry = new THREE.SphereGeometry(0.3, 12, 12);
+            let material;
+
+            switch(client.status) {
+                case 'connected': material = connectedMaterial; break;
+                case 'probing': material = probingMaterial; break;
+                default: material = unknownMaterial;
+            }
+
+            const mesh = new THREE.Mesh(geometry, material);
+
+            // Position clients around their connected AP or randomly
+            if (client.connectedTo && nodeMap.has(client.connectedTo)) {
+                const ap = nodeMap.get(client.connectedTo);
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 2 + Math.random() * 2;
+                mesh.position.set(
+                    ap.position.x + Math.cos(angle) * distance,
+                    ap.position.y + (Math.random() - 0.5) * 2,
+                    ap.position.z + Math.sin(angle) * distance
+                );
+            } else {
+                mesh.position.set(
+                    (Math.random() - 0.5) * 20,
+                    (Math.random() - 0.5) * 10,
+                    (Math.random() - 0.5) * 20
+                );
+            }
+
+            mesh.userData = { type: 'client', data: client };
+            scene.add(mesh);
+            nodes.push(mesh);
+            nodeMap.set(client.id, mesh);
+        });
+    }
+
+    // Create connections
+    function createConnections() {
+        wifiData.clients.forEach(client => {
+            if (client.status === 'connected' && client.connectedTo) {
+                const clientMesh = nodeMap.get(client.id);
+                const apMesh = nodeMap.get(client.connectedTo);
+
+                if (clientMesh && apMesh) {
+                    const material = new THREE.LineBasicMaterial({
+                        color: 0x00ff88,
+                        transparent: true,
+                        opacity: 0.6
+                    });
+
+                    const geometry = new THREE.BufferGeometry().setFromPoints([
+                        clientMesh.position,
+                        apMesh.position
+                    ]);
+
+                    const line = new THREE.Line(geometry, material);
+                    line.userData = { type: 'connection' };
+                    scene.add(line);
+                    connections.push(line);
+                }
+            }
+        });
+    }
+
+    // Mouse interaction
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    function onMouseClick(event) {
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(nodes);
+
+        if (intersects.length > 0) {
+            const selectedNode = intersects[0].object;
+            showNodeDetails(selectedNode.userData);
+        }
+    }
+
+    function showNodeDetails(userData) {
+        const detailsDiv = document.getElementById('node-details');
+        const titleDiv = document.getElementById('node-title');
+        const dataDiv = document.getElementById('node-data');
+
+        if (userData.type === 'ap') {
+            titleDiv.innerHTML = `<span class="status-ap">Access Point</span>`;
+            dataDiv.innerHTML = `
+                <strong>SSID:</strong> ${userData.data.ssid}<br>
+                <strong>BSSID:</strong> ${userData.data.bssid}<br>
+                <strong>Clients:</strong> ${userData.data.clients.length}<br>
+                <strong>Vendor:</strong> ${userData.data.vendor}
+            `;
+        } else {
+            titleDiv.innerHTML = `<span class="status-${userData.data.status}">Client Device</span>`;
+            dataDiv.innerHTML = `
+                <strong>MAC:</strong> ${userData.data.mac}<br>
+                <strong>Status:</strong> ${userData.data.status}<br>
+                <strong>Vendor:</strong> ${userData.data.vendor}<br>
+                ${userData.data.connectedTo ? `<strong>Connected to:</strong> ${userData.data.connectedTo}` : ''}
+                ${userData.data.probingFor ? `<strong>Probing for:</strong> ${userData.data.probingFor}` : ''}
+            `;
+        }
+
+        detailsDiv.classList.add('active');
+    }
+
+    // Camera controls
+    function onMouseDown(event) {
+        isMouseDown = true;
+        mouseX = event.clientX;
+        mouseY = event.clientY;
+    }
+
+    function onMouseUp() {
+        isMouseDown = false;
+    }
+
+    function onMouseMove(event) {
+        if (isMouseDown) {
+            const deltaX = event.clientX - mouseX;
+            const deltaY = event.clientY - mouseY;
+
+            targetRotationY += deltaX * 0.01;
+            targetRotationX += deltaY * 0.01;
+
+            mouseX = event.clientX;
+            mouseY = event.clientY;
+        }
+    }
+
+    // Animation
+    function animate() {
+        if (!animationPaused) {
+            animationId = requestAnimationFrame(animate);
+        }
+
+        // Smooth camera rotation
+        camera.position.x = Math.cos(targetRotationY) * 15;
+        camera.position.z = Math.sin(targetRotationY) * 15;
+        camera.position.y = targetRotationX * 5;
+        camera.lookAt(0, 0, 0);
+
+        // Animate nodes
+        nodes.forEach((node, index) => {
+            if (node.userData.type === 'ap') {
+                node.rotation.y += 0.01;
+                node.children[0].rotation.x += 0.02; // Glow effect
+            } else {
+                node.rotation.x += 0.005;
+                node.rotation.y += 0.01;
+            }
+        });
+
+        renderer.render(scene, camera);
+    }
+
+    // Control functions
+    function toggleAnimation() {
+        const btn = event.target;
+        if (animationPaused) {
+            animationPaused = false;
+            animate();
+            btn.textContent = '⏸️ Pause';
+        } else {
+            animationPaused = true;
+            cancelAnimationFrame(animationId);
+            btn.textContent = '▶️ Play';
+        }
+    }
+
+    function resetView() {
+        targetRotationX = 0;
+        targetRotationY = 0;
+    }
+
+    function toggleConnections() {
+        showConnections = !showConnections;
+        connections.forEach(conn => {
+            conn.visible = showConnections;
+        });
+    }
+
+    // Update stats
+    function updateStats() {
+        document.getElementById('ap-count').textContent = wifiData.accessPoints.length;
+        document.getElementById('connected-count').textContent =
+            wifiData.clients.filter(c => c.status === 'connected').length;
+        document.getElementById('probing-count').textContent =
+            wifiData.clients.filter(c => c.status === 'probing').length;
+        document.getElementById('unknown-count').textContent =
+            wifiData.clients.filter(c => c.status === 'unknown').length;
+    }
+
+    // Event listeners
+    renderer.domElement.addEventListener('click', onMouseClick);
+    renderer.domElement.addEventListener('mousedown', onMouseDown);
+    renderer.domElement.addEventListener('mouseup', onMouseUp);
+    renderer.domElement.addEventListener('mousemove', onMouseMove);
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Initialize
+    camera.position.set(0, 5, 15);
+    updateNetworks();
+    animate();
+</script>
+</body>
+</html>

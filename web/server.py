@@ -14,28 +14,42 @@ class WebDataBridge:
         """Format data for web consumption"""
         networks = []
         for bssid, ssid in self.seen_aps.items():
-            # Find connected clients
             clients = []
             for client_mac, client_info in self.seen_clients.items():
-                if client_info.get('connected_to') == bssid:
-                    clients.append({
-                        'mac': client_mac,
-                        'vendor': self.vendor_manager.find_vendor_by_mac(client_mac)
-                    })
+                status = "unknown"
+                connected_to = client_info.get("connected_to")
+                probes = client_info.get("probes", [])
+
+                if connected_to == bssid:
+                    status = "connected"
+                elif not connected_to and probes:
+                    status = "probing"
+
+                clients.append({
+                    "mac": client_mac,
+                    "vendor": self.vendor_manager.find_vendor_by_mac(client_mac),
+                    "status": status,
+                    "connected_to": connected_to,
+                    "probes": probes
+                })
 
             networks.append({
-                'ssid': ssid,
-                'bssid': bssid,
-                'vendor': self.vendor_manager.find_vendor_by_mac(bssid),
-                'client_count': len(clients),
-                'clients': clients
+                "ssid": ssid,
+                "bssid": bssid,
+                "vendor": self.vendor_manager.find_vendor_by_mac(bssid),
+                "client_count": len([c for c in clients if c["status"] == "connected"]),
+                "clients": clients
             })
         return networks
-
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/graph')
+def graph():
+    return render_template('networkGraph.html')
+
 
 
 @app.route('/api/networks')
@@ -57,4 +71,4 @@ def start_server(seen_aps, seen_clients, vendor_manager, host='0.0.0.0', port=50
     print(f"DEBUG: Initializing web_bridge with {len(seen_aps)} APs and {len(seen_clients)} clients")
     web_bridge = WebDataBridge(seen_aps, seen_clients, vendor_manager)
     print("DEBUG: web_bridge initialized successfully")
-    app.run(host=host, port=port, debug=False, threaded=True)
+    app.run(host=host, port=port, debug=True, threaded=True)
