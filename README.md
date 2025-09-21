@@ -81,7 +81,7 @@ wifiscanner/
         └── index.html      # Web dashboard
 ```
 
-Example Output
+## Example Output
 ```
 ======================================================================
 📡 DISCOVERED ACCESS POINTS
