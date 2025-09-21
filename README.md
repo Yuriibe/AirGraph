@@ -81,6 +81,21 @@ wifiscanner/
         └── index.html      # Web dashboard
 ```
 
+Example Output
+```
+======================================================================
+📡 DISCOVERED ACCESS POINTS
+======================================================================
+SSID: HomeNetwork          | BSSID: xx:xx:xx:xx:xx:01 | Clients: 2 | Vendor: Cisco Systems Inc
+SSID: GuestWiFi            | BSSID: xx:xx:xx:xx:xx:02 | Clients: 0 | Vendor: Netgear Inc.
+SSID: OfficeNet            | BSSID: xx:xx:xx:xx:xx:03 | Clients: 1 | Vendor: TP-LINK TECHNOLOGIES
+======================================================================
+👥 DISCOVERED CLIENTS
+======================================================================
+Client: xx:xx:xx:xx:xx:10 | Connected to: HomeNetwork (xx:xx:xx:xx:xx:01) | Vendor: Apple Inc.
+Client: xx:xx:xx:xx:xx:11 | Probing for: HomeNetwork | Vendor: Samsung Electronics
+Client: xx:xx:xx:xx:xx:12 | Status unknown | Vendor: Intel Corporate
+```
 ## Legal Notice
 
 This tool is designed for network security assessment and educational purposes. Only use on networks you own or have explicit permission to test. Unauthorized network monitoring may violate local laws.
