@@ -21,8 +21,8 @@ A passive WiFi monitoring tool that discovers access points and tracks client as
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd wifiscanner
+git clone https://github.com/Yuriibe/AirGraph.git
+cd AirGraph
 ```
 
 2. Install dependencies:
