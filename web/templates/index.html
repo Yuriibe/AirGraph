@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WiFi Scanner</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .stats {
+            text-align: center;
+            margin: 20px 0;
+            font-size: 18px;
+            color: #666;
+        }
+
+        .network-card {
+            background: white;
+            border: 1px solid #ddd;
+            margin: 15px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .network-header {
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        .ssid {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .network-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .info-item {
+            font-size: 14px;
+        }
+
+        .info-label {
+            font-weight: bold;
+            color: #555;
+        }
+
+        .client-section {
+            margin-top: 15px;
+        }
+
+        .client-count {
+            font-weight: bold;
+            color: #27ae60;
+            margin-bottom: 10px;
+        }
+
+        .client-list {
+            margin-left: 15px;
+        }
+
+        .client-item {
+            background: #f8f9fa;
+            padding: 8px 12px;
+            margin: 5px 0;
+            border-radius: 4px;
+            border-left: 3px solid #3498db;
+            font-family: monospace;
+            font-size: 13px;
+        }
+
+        .client-mac {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .client-vendor {
+            color: #7f8c8d;
+            margin-left: 10px;
+        }
+
+        .refresh-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 15px 20px;
+            border-radius: 50px;
+            cursor: pointer;
+            font-size: 16px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        .refresh-btn:hover {
+            background: #2980b9;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 18px;
+            color: #666;
+        }
+
+        .last-updated {
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>📡 WiFi Network Scanner</h1>
+
+    <div class="stats" id="stats">
+        <div>Loading network data...</div>
+    </div>
+
+    <div id="networks" class="loading">
+        🔄 Scanning for networks...
+    </div>
+
+    <div class="last-updated" id="lastUpdated"></div>
+
+    <button class="refresh-btn" onclick="updateNetworks()">🔄 Refresh</button>
+
+    <script>
+        function updateNetworks() {
+            fetch('/api/networks')
+                .then(response => response.json())
+                .then(data => {
+                    displayNetworks(data);
+                    updateStats(data);
+                    document.getElementById('lastUpdated').textContent =
+                        'Last updated: ' + new Date().toLocaleTimeString();
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                    document.getElementById('networks').innerHTML =
+                        '<div style="color: red; text-align: center;">❌ Error loading data</div>';
+                });
+        }
+
+        function updateStats(networks) {
+            const totalClients = networks.reduce((sum, network) => sum + network.client_count, 0);
+            document.getElementById('stats').innerHTML = `
+                <div>📊 <strong>${networks.length}</strong> Access Points |
+                     👥 <strong>${totalClients}</strong> Connected Clients</div>
+            `;
+        }
+
+        function displayNetworks(networks) {
+            const container = document.getElementById('networks');
+
+            if (networks.length === 0) {
+                container.innerHTML = '<div class="loading">No networks discovered yet...</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+
+            networks.forEach(network => {
+                const networkDiv = document.createElement('div');
+                networkDiv.className = 'network-card';
+
+                const clientsHtml = network.clients.length > 0
+                    ? network.clients.map(client =>
+                        `<div class="client-item">
+                            <span class="client-mac">📱 ${client.mac}</span>
+                            <span class="client-vendor">(${client.vendor})</span>
+                        </div>`
+                      ).join('')
+                    : '<div class="client-item" style="color: #999; font-style: italic;">No connected clients</div>';
+
+                networkDiv.innerHTML = `
+                    <div class="network-header">
+                        <div class="ssid">${network.ssid || '🔒 Hidden Network'}</div>
+                    </div>
+
+                    <div class="network-info">
+                        <div class="info-item">
+                            <span class="info-label">BSSID:</span>
+                            <code>${network.bssid}</code>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Vendor:</span>
+                            ${network.vendor}
+                        </div>
+                    </div>
+
+                    <div class="client-section">
+                        <div class="client-count">
+                            👥 ${network.client_count} Connected Client${network.client_count !== 1 ? 's' : ''}
+                        </div>
+                        <div class="client-list">
+                            ${clientsHtml}
+                        </div>
+                    </div>
+                `;
+
+                container.appendChild(networkDiv);
+            });
+        }
+
+        // Auto-refresh every 10 seconds
+        setInterval(updateNetworks, 10000);
+
+        // Initial load
+        updateNetworks();
+    </script>
+</body>
+</html>
