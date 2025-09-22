@@ -96,6 +96,8 @@ Client: xx:xx:xx:xx:xx:10 | Connected to: HomeNetwork (xx:xx:xx:xx:xx:01) | Vend
 Client: xx:xx:xx:xx:xx:11 | Probing for: HomeNetwork | Vendor: Samsung Electronics
 Client: xx:xx:xx:xx:xx:12 | Status unknown | Vendor: Intel Corporate
 ```
+## Graphical Output
+![Network Graph Demo](assets/networkGraph.gif)
 ## Legal Notice
 
 This tool is designed for network security assessment and educational purposes. Only use on networks you own or have explicit permission to test. Unauthorized network monitoring may violate local laws.
